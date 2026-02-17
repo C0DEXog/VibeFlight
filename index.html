@@ -1,0 +1,162 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <title>VibeFlight: Music-Reactive Drone Swarm 🚀✨</title>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/p5.js/1.9.4/p5.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/p5.js/1.9.4/addons/p5.sound.min.js"></script>
+  <style>
+    body { margin:0; background: #000; font-family: monospace; color: #0ff; }
+    canvas { display: block; }
+    #info { position: absolute; top:10px; left:10px; z-index:10; }
+    button { background: #f0f; color:#000; border:none; padding:10px; cursor:pointer; font-size:16px; }
+  </style>
+</head>
+<body>
+  <div id="info">
+    <h2>VibeFlight by [YourName] – EEE Vibe Coder</h2>
+    <p>Click Mic/Song → Drones dance to PID flight vibes! For LAT Aerospace inspo.</p>
+    <button onclick="loadMic()">🎤 Mic Vibe</button>
+    <button onclick="loadSong()">🎵 Upload Song</button>
+    <p><a href="https://github.com/[yourusername]/VibeFlight" target="_blank">Star on GitHub! ⭐</a></p>
+  </div>
+
+  <script>
+    let mic, fft, song;
+    let drones = [];
+    let numDrones = 50;
+    let bassAmp = 0;
+
+    // PID Class (Real EEE Controls for Drone Motors)
+    class PID {
+      constructor(kp=1, ki=0.1, kd=0.1) {
+        this.kp = kp; this.ki = ki; this.kd = kd;
+        this.prevError = 0; this.integral = 0;
+      }
+      update(target, current, dt) {
+        let error = target - current;
+        this.integral += error * dt;
+        let derivative = (error - this.prevError) / dt;
+        this.prevError = error;
+        return this.kp * error + this.ki * this.integral + this.kd * derivative;
+      }
+    }
+
+    // Drone Class (Physics + Vibe Trails)
+    class Drone {
+      constructor(x, y) {
+        this.pos = createVector(x, y);
+        this.vel = createVector(0, 0);
+        this.acc = createVector(0, 0);
+        this.angle = 0;
+        this.thrust = 0;  // RPM-based thrust
+        this.trail = [];
+        this.pid = new PID(2, 0.5, 0.3);  // Tune for stable flight!
+        this.targetX = random(width);
+        this.targetY = random(height);
+      }
+      update(dt, bass) {
+        // Music -> Target (bass makes swarm!)
+        this.targetX += (bass * 200 - sin(frameCount*0.1)) * 0.01;
+        this.targetY += (bass * 150 - cos(frameCount*0.05)) * 0.01;
+
+        // PID Thrust Control (EEE Magic)
+        let errorX = this.targetX - this.pos.x;
+        this.thrust = this.pid.update(errorX, this.pos.x, dt);
+
+        // Physics: Thrust -> Accel (F=ma vibe)
+        let force = p5.Vector.fromAngle(this.angle);
+        force.mult(this.thrust * 0.001 + bass * 0.5);
+        this.acc = force;
+        this.vel.add(this.acc);
+        this.vel.mult(0.95);  // Drag
+        this.pos.add(this.vel);
+
+        // Wrap around screen
+        if (this.pos.x > width) this.pos.x = 0;
+        if (this.pos.y > height) this.pos.y = 0;
+
+        // Trail Vibe
+        this.trail.push(this.pos.copy());
+        if (this.trail.length > 20) this.trail.shift();
+      }
+      draw() {
+        // Neon glow trail
+        noFill();
+        stroke(0, 255, 255, 50);
+        strokeWeight(3);
+        beginShape();
+        for (let p of this.trail) vertex(p.x, p.y);
+        endShape();
+
+        // Drone: Thrust glow (RPM viz)
+        fill(255, 100 + this.thrust*10, 0, 150);
+        noStroke();
+        ellipse(this.pos.x, this.pos.y, 20 + this.thrust*0.1, 20 + this.thrust*0.1);
+        textSize(12);
+        fill(0, 255, 0);
+        text(`${int(this.thrust)}`, this.pos.x-10, this.pos.y+5);
+      }
+    }
+
+    function setup() {
+      createCanvas(windowWidth, windowHeight);
+      colorMode(HSB);
+
+      // Spawn Swarm
+      for (let i=0; i<numDrones; i++) {
+        drones.push(new Drone(random(width), random(height)));
+      }
+    }
+
+    function draw() {
+      background(0, 0.1);  // Glow trails persist
+
+      let bass = 0;
+      if (fft) {
+        let spectrum = fft.analyze();
+        bass = fft.getEnergy("bass") / 255;  // Beat detection
+      }
+
+      let dt = 1 / 60;
+      for (let drone of drones) {
+        drone.update(dt, bass);
+        drone.draw();
+      }
+
+      // Vibe Text
+      fill(255);
+      textSize(32);
+      textAlign(CENTER);
+      text(`Bass Vibe: ${int(bass*100)}% | Thrust Avg: ${int(avgThrust())}`, width/2, 50);
+    }
+
+    function avgThrust() {
+      return drones.reduce((sum, d) => sum + d.thrust, 0) / drones.length;
+    }
+
+    function loadMic() {
+      mic = new p5.AudioIn();
+      mic.start();
+      fft = new p5.FFT();
+      fft.setInput(mic);
+    }
+
+    function loadSong() {
+      song = createFileInput(handleSong);
+      song.position(10, 150);
+    }
+
+    function handleSong(file) {
+      if (song) {
+        song = loadSound(file.data, () => song.play());
+        fft = new p5.FFT();
+        fft.setInput(song);
+      }
+    }
+
+    function windowResized() {
+      resizeCanvas(windowWidth, windowHeight);
+    }
+  </script>
+</body>
+</html>
