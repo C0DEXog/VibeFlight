@@ -8,33 +8,33 @@
     html, body { margin:0; padding:0; overflow:hidden; background: #000; font-family: monospace; color: #0ff; }
     canvas { display: block; }
     #info { position: absolute; top:10px; left:10px; z-index:10; background:rgba(0,0,0,0.7); padding:15px; border-radius:10px; max-width:400px; }
-    button { background: #f0f; color:#000; border:none; padding:12px 20px; cursor:pointer; font-size:16px; border-radius:8px; margin:5px 0; display:block; width:100%; box-sizing:border-box; }
-    button:hover, input:hover { background: #ff0 !important; }
-    #songInput { position: absolute; top:280px; left:10px; z-index:11; background:#f0f; color:#000; padding:12px; border-radius:8px; cursor:pointer; }
-    #status { color: #0f0; font-size:14px; margin-top:10px; }
+    button { background: linear-gradient(45deg, #f0f, #ff0); color:#000; border:none; padding:12px 20px; cursor:pointer; font-size:16px; border-radius:8px; margin:5px 0; display:block; width:100%; box-sizing:border-box; font-weight:bold; }
+    button:hover { background: linear-gradient(45deg, #ff0, #f0f); transform: scale(1.05); }
+    #status { color: #0f0; font-size:14px; margin-top:10px; font-family: monospace; }
+    #playBtn { background: linear-gradient(45deg, #0f0, #0ff) !important; }
   </style>
 </head>
 <body>
   <div id="info">
     <h2>VibeFlight by C0DEXog</h2>
-    <p>Click below → Drones swarm to beats! PID flight sim</p>
-    <button onclick="toggleMic()">🎤 Toggle Mic (Speak Loud!)</button>
-    <label for="songInput" style="display:block; cursor:pointer;">
-      <button>🎵 Upload Song (MP3/WAV)</button>
-    </label>
-    <input type="file" id="songInput" accept="audio/*" style="display:none;" onchange="handleSong(event)">
-    <div id="status">Status: Ready. Console (F12) for debug.</div>
+    <p>Click below → Drones swarm to beats! PID flight sim for LAT Aerospace.</p>
+    <button onclick="toggleMic()">🎤 Toggle Mic (Speak/Clap Loud!)</button>
+    <button id="songBtn" onclick="loadSong()">🎵 Upload & Play Song (MP3/WAV/OGG)</button>
+    <button id="playBtn" onclick="playSong()" style="display:none;">▶️ Play Current Song</button>
+    <div id="status">Status: Ready! Console (F12) for logs. Drones vibe ambiently.</div>
     <p><a href="https://github.com/C0DEXog/VibeFlight" target="_blank" style="color:#ff0;">⭐ Star on GitHub!</a></p>
   </div>
 
   <script>
-    let mic, fft, song;
+    let mic, fft, song, soundFile;
     let drones = [];
     let numDrones = 30;
     let isMicOn = false;
     let statusEl = document.getElementById('status');
+    let playBtn = document.getElementById('playBtn');
+    let songBtn = document.getElementById('songBtn');
 
-    // PID & Drone classes (same as before, optimized)
+    // PID Class (unchanged)
     class PID {
       constructor(kp=1.5, ki=0.2, kd=0.2) {
         this.kp = kp; this.ki = ki; this.kd = kd;
@@ -49,6 +49,7 @@
       }
     }
 
+    // Drone Class (enhanced bass reaction)
     class Drone {
       constructor(x, y) {
         this.pos = createVector(x, y);
@@ -62,67 +63,70 @@
         this.targetY = y;
       }
       update(dt, bass) {
-        this.targetX += sin(frameCount * 0.02 + bass * 5) * 15;
-        this.targetY += cos(frameCount * 0.015 + bass * 3) * 15;
+        // Stronger music swarm + ambient spin
+        this.targetX += sin(frameCount * 0.02 + bass * 8) * 20;
+        this.targetY += cos(frameCount * 0.015 + bass * 5) * 20;
 
         let errorX = this.targetX - this.pos.x;
         this.thrust = this.pid.update(this.targetX, this.pos.x, dt);
-        this.thrust = constrain(this.thrust, -8, 8);
+        this.thrust = constrain(this.thrust, -10, 10);
 
-        let force = p5.Vector.fromAngle(this.angle + bass * 0.5);
-        force.mult(this.thrust * 0.015 + bass * 1.5);
+        let force = p5.Vector.fromAngle(this.angle + bass * 0.8 + frameCount * 0.01);
+        force.mult(this.thrust * 0.02 + bass * 2);
         this.acc = force;
         this.vel.add(this.acc);
-        this.vel.mult(0.92);
+        this.vel.mult(0.9);
         this.pos.add(this.vel);
 
         this.pos.x = constrain(this.pos.x, 0, width);
         this.pos.y = constrain(this.pos.y, 0, height);
 
         this.trail.push(this.pos.copy());
-        if (this.trail.length > 20) this.trail.shift();
+        if (this.trail.length > 25) this.trail.shift();
       }
       draw() {
-        drawingContext.shadowBlur = 25;
-        drawingContext.shadowColor = 'cyan';
+        // Epic trails + glow
+        drawingContext.shadowBlur = 30;
+        drawingContext.shadowColor = `hsl(${frameCount*0.4 % 360}, 100%, 60%)`;
         noFill();
-        stroke(0, 200, 255, 100);
-        strokeWeight(3);
+        stroke(0, 255 - bass*50, 255, 120);
+        strokeWeight(4);
         beginShape();
         for (let p of this.trail) vertex(p.x, p.y);
         endShape();
 
-        drawingContext.shadowBlur = 20;
-        drawingContext.shadowColor = `hsl(${frameCount*0.3 % 360}, 100%, 50%)`;
-        fill(255, 150 + abs(this.thrust)*30, 0, 200);
+        drawingContext.shadowBlur = 25;
+        drawingContext.shadowColor = `hsl(${frameCount*0.5 % 360}, 100%, 50%)`;
+        fill(255, 200 + abs(this.thrust)*40, 50, 220);
         noStroke();
-        ellipse(this.pos.x, this.pos.y, 25 + abs(this.thrust), 25 + abs(this.thrust));
+        ellipse(this.pos.x, this.pos.y, 30 + abs(this.thrust)*1.5, 30 + abs(this.thrust)*1.5);
 
         fill(0, 255, 0);
-        textSize(12);
+        textSize(14);
         textAlign(CENTER);
-        text(`${int(this.thrust*10)}`, this.pos.x, this.pos.y + 5);
+        text(`${int(this.thrust*10)}`, this.pos.x, this.pos.y + 6);
       }
     }
 
     function setup() {
       createCanvas(windowWidth, windowHeight);
       colorMode(HSB, 360, 100, 100, 1);
+
+      // Spawn drones
       for (let i = 0; i < numDrones; i++) {
         drones.push(new Drone(random(width*0.1, width*0.9), random(height*0.1, height*0.9)));
       }
-      console.log('VibeFlight FULLY LOADED! Click Mic/Song. F12 for console.');
-      statusEl.innerHTML = 'Status: Loaded! Click Mic & allow permission.';
+      console.log('🌟 VibeFlight LOADED! Ambient drones spinning. Click buttons!');
+      statusEl.innerHTML = 'Status: Loaded! Ambient vibes ON. Upload song or mic.';
     }
 
     function draw() {
-      background(0, 0, 0, 0.12);
+      background(0, 0, 0, 0.1);  // Smoother trails
 
       let bass = 0;
       if (fft) {
-        try {
-          bass = fft.getEnergy("bass") / 255;
-        } catch(e) { console.log('FFT ok'); }
+        bass = fft.getEnergy("bass") / 255 * 1.5;  // Boost sensitivity
+        bass = constrain(bass, 0, 1);
       }
 
       let dt = 1/60;
@@ -131,59 +135,79 @@
         drone.draw();
       }
 
+      // HUD
       fill(255);
-      textSize(28);
+      noStroke();
+      textSize(32);
       textAlign(LEFT);
-      text(`Bass: ${int(bass*100)}% | Thrust: ${int(avgThrust())} | Drones: ${numDrones}`, 20, 45);
-
-      // Status update
-      if (isMicOn) statusEl.innerHTML = `Status: Mic ON | Bass: ${int(bass*100)}% – Vibe hard!`;
+      text(`Bass: ${int(bass*100)}% | Avg Thrust: ${int(avgThrust())} | Drones: ${numDrones}`, 20, 50);
     }
 
     function avgThrust() {
+      if (drones.length === 0) return 0;
       return drones.reduce((sum, d) => sum + Math.abs(d.thrust), 0) / drones.length;
     }
 
+    // MIC (improved)
     function toggleMic() {
       getAudioContext().resume();
       if (!isMicOn) {
         mic = new p5.AudioIn();
         mic.start().then(() => {
-          fft = new p5.FFT(0.8, 1024);
+          fft = new p5.FFT(0.8, 2048);  // Higher res
           fft.setInput(mic);
           isMicOn = true;
-          console.log('🎤 Mic STARTED – Speak/Rap for bass!');
-          statusEl.innerHTML = 'Status: Mic ON – Speak loud!';
+          console.log('🎤 MIC LIVE – Clap/Rap/Yell!');
+          statusEl.innerHTML = 'Status: Mic ON – Bass reacting! Speak loud.';
         }).catch(e => {
-          console.error('Mic Error:', e);
-          statusEl.innerHTML = 'Status: Mic denied – Allow in browser settings.';
+          console.error('Mic fail:', e);
+          statusEl.innerHTML = 'Mic denied. Check site settings > Microphone.';
         });
       } else {
         if (mic) mic.stop();
         isMicOn = false;
-        console.log('Mic OFF');
         statusEl.innerHTML = 'Status: Mic OFF';
+        console.log('Mic stopped');
       }
     }
 
-    function handleSong(event) {
-      const file = event.target.files[0];
-      if (file && file.type.startsWith('audio/')) {
-        if (song) song.stop();
-        console.log('Song loading:', file.name);
-        statusEl.innerHTML = `Status: Loading ${file.name}...`;
-        song = loadSound(URL.createObjectURL(file), () => {
-          song.play();
-          fft = new p5.FFT(0.8, 1024);
-          fft.setInput(song);
-          console.log('🎵 Song PLAYING!');
-          statusEl.innerHTML = `Status: Song "${file.name}" – Vibing!`;
-        }, () => {
-          console.error('Song load fail');
-          statusEl.innerHTML = 'Status: Song failed – Try MP3/WAV.';
-        });
+    // SONG UPLOAD – p5.js NATIVE (ZERO GLITCHES)
+    function loadSong() {
+      console.log('🎵 File picker opening...');
+      let input = createFileInput(handleSong);
+      input.size(200, 50);  // Styled auto
+      input.position(20, 220);  // No overlap
+    }
+
+    function handleSong(file) {
+      if (file.type === 'audio') {
+        console.log('Loading song:', file.name, file.type);
+        statusEl.innerHTML = `Loading "${file.name}"...`;
+
+        // p5.SoundFile for local files – PERFECT
+        soundFile = new p5.SoundFile();
+        soundFile.path = URL.createObjectURL(file.data);
+        soundFile.loadMetadata(handleSoundReady);
       } else {
-        statusEl.innerHTML = 'Status: Pick audio file (MP3/WAV).';
+        statusEl.innerHTML = 'Invalid: MP3/WAV/OGG only.';
+      }
+    }
+
+    function handleSoundReady() {
+      soundFile.playMode('restart');
+      fft = new p5.FFT(0.8, 2048);
+      fft.setInput(soundFile);
+      playBtn.style.display = 'block';
+      songBtn.style.display = 'none';
+      statusEl.innerHTML = `Song "${soundFile.name}" READY! Click ▶️ Play.`;
+      console.log('Song READY – Click play!');
+    }
+
+    function playSong() {
+      if (soundFile && !soundFile.isPlaying()) {
+        soundFile.play();
+        console.log('▶️ Song PLAYING – Bass incoming!');
+        statusEl.innerHTML = `Song PLAYING | Bass live!`;
       }
     }
 
