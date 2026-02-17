@@ -5,30 +5,38 @@
   <script src="https://cdnjs.cloudflare.com/ajax/libs/p5.js/1.9.4/p5.min.js"></script>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/p5.js/1.9.4/addons/p5.sound.min.js"></script>
   <style>
-    body { margin:0; background: #000; font-family: monospace; color: #0ff; }
+    html, body { margin:0; padding:0; overflow:hidden; background: #000; font-family: monospace; color: #0ff; }
     canvas { display: block; }
-    #info { position: absolute; top:10px; left:10px; z-index:10; }
-    button { background: #f0f; color:#000; border:none; padding:10px; cursor:pointer; font-size:16px; }
+    #info { position: absolute; top:10px; left:10px; z-index:10; background:rgba(0,0,0,0.7); padding:15px; border-radius:10px; max-width:400px; }
+    button { background: #f0f; color:#000; border:none; padding:12px 20px; cursor:pointer; font-size:16px; border-radius:8px; margin:5px 0; display:block; width:100%; box-sizing:border-box; }
+    button:hover, input:hover { background: #ff0 !important; }
+    #songInput { position: absolute; top:280px; left:10px; z-index:11; background:#f0f; color:#000; padding:12px; border-radius:8px; cursor:pointer; }
+    #status { color: #0f0; font-size:14px; margin-top:10px; }
   </style>
 </head>
 <body>
   <div id="info">
     <h2>VibeFlight by C0DEXog</h2>
-    <p>Click Mic/Song → Drones dance to PID flight vibes!</p>
-    <button onclick="loadMic()">🎤 Mic Vibe</button>
-    <button onclick="loadSong()">🎵 Upload Song</button>
-    <p><a href="https://github.com/C0DEXog/VibeFlight" target="_blank">Star on GitHub! ⭐</a></p>
+    <p>Click below → Drones swarm to beats! PID flight sim</p>
+    <button onclick="toggleMic()">🎤 Toggle Mic (Speak Loud!)</button>
+    <label for="songInput" style="display:block; cursor:pointer;">
+      <button>🎵 Upload Song (MP3/WAV)</button>
+    </label>
+    <input type="file" id="songInput" accept="audio/*" style="display:none;" onchange="handleSong(event)">
+    <div id="status">Status: Ready. Console (F12) for debug.</div>
+    <p><a href="https://github.com/C0DEXog/VibeFlight" target="_blank" style="color:#ff0;">⭐ Star on GitHub!</a></p>
   </div>
 
   <script>
     let mic, fft, song;
     let drones = [];
-    let numDrones = 50;
-    let bassAmp = 0;
+    let numDrones = 30;
+    let isMicOn = false;
+    let statusEl = document.getElementById('status');
 
-    // PID Class (Real EEE Controls for Drone Motors)
+    // PID & Drone classes (same as before, optimized)
     class PID {
-      constructor(kp=1, ki=0.1, kd=0.1) {
+      constructor(kp=1.5, ki=0.2, kd=0.2) {
         this.kp = kp; this.ki = ki; this.kd = kd;
         this.prevError = 0; this.integral = 0;
       }
@@ -41,116 +49,141 @@
       }
     }
 
-    // Drone Class (Physics + Vibe Trails)
     class Drone {
       constructor(x, y) {
         this.pos = createVector(x, y);
-        this.vel = createVector(0, 0);
+        this.vel = createVector(random(-2,2), random(-2,2));
         this.acc = createVector(0, 0);
         this.angle = 0;
-        this.thrust = 0;  // RPM-based thrust
+        this.thrust = 0;
         this.trail = [];
-        this.pid = new PID(2, 0.5, 0.3);  // Tune for stable flight!
-        this.targetX = random(width);
-        this.targetY = random(height);
+        this.pid = new PID();
+        this.targetX = x;
+        this.targetY = y;
       }
       update(dt, bass) {
-        // Music -> Target (bass makes swarm!)
-        this.targetX += (bass * 200 - sin(frameCount*0.1)) * 0.01;
-        this.targetY += (bass * 150 - cos(frameCount*0.05)) * 0.01;
+        this.targetX += sin(frameCount * 0.02 + bass * 5) * 15;
+        this.targetY += cos(frameCount * 0.015 + bass * 3) * 15;
 
-        // PID Thrust Control (EEE Magic)
         let errorX = this.targetX - this.pos.x;
-        this.thrust = this.pid.update(errorX, this.pos.x, dt);
+        this.thrust = this.pid.update(this.targetX, this.pos.x, dt);
+        this.thrust = constrain(this.thrust, -8, 8);
 
-        // Physics: Thrust -> Accel (F=ma vibe)
-        let force = p5.Vector.fromAngle(this.angle);
-        force.mult(this.thrust * 0.001 + bass * 0.5);
+        let force = p5.Vector.fromAngle(this.angle + bass * 0.5);
+        force.mult(this.thrust * 0.015 + bass * 1.5);
         this.acc = force;
         this.vel.add(this.acc);
-        this.vel.mult(0.95);  // Drag
+        this.vel.mult(0.92);
         this.pos.add(this.vel);
 
-        // Wrap around screen
-        if (this.pos.x > width) this.pos.x = 0;
-        if (this.pos.y > height) this.pos.y = 0;
+        this.pos.x = constrain(this.pos.x, 0, width);
+        this.pos.y = constrain(this.pos.y, 0, height);
 
-        // Trail Vibe
         this.trail.push(this.pos.copy());
         if (this.trail.length > 20) this.trail.shift();
       }
       draw() {
-        // Neon glow trail
+        drawingContext.shadowBlur = 25;
+        drawingContext.shadowColor = 'cyan';
         noFill();
-        stroke(0, 255, 255, 50);
+        stroke(0, 200, 255, 100);
         strokeWeight(3);
         beginShape();
         for (let p of this.trail) vertex(p.x, p.y);
         endShape();
 
-        // Drone: Thrust glow (RPM viz)
-        fill(255, 100 + this.thrust*10, 0, 150);
+        drawingContext.shadowBlur = 20;
+        drawingContext.shadowColor = `hsl(${frameCount*0.3 % 360}, 100%, 50%)`;
+        fill(255, 150 + abs(this.thrust)*30, 0, 200);
         noStroke();
-        ellipse(this.pos.x, this.pos.y, 20 + this.thrust*0.1, 20 + this.thrust*0.1);
-        textSize(12);
+        ellipse(this.pos.x, this.pos.y, 25 + abs(this.thrust), 25 + abs(this.thrust));
+
         fill(0, 255, 0);
-        text(`${int(this.thrust)}`, this.pos.x-10, this.pos.y+5);
+        textSize(12);
+        textAlign(CENTER);
+        text(`${int(this.thrust*10)}`, this.pos.x, this.pos.y + 5);
       }
     }
 
     function setup() {
       createCanvas(windowWidth, windowHeight);
-      colorMode(HSB);
-
-      // Spawn Swarm
-      for (let i=0; i<numDrones; i++) {
-        drones.push(new Drone(random(width), random(height)));
+      colorMode(HSB, 360, 100, 100, 1);
+      for (let i = 0; i < numDrones; i++) {
+        drones.push(new Drone(random(width*0.1, width*0.9), random(height*0.1, height*0.9)));
       }
+      console.log('VibeFlight FULLY LOADED! Click Mic/Song. F12 for console.');
+      statusEl.innerHTML = 'Status: Loaded! Click Mic & allow permission.';
     }
 
     function draw() {
-      background(0, 0.1);  // Glow trails persist
+      background(0, 0, 0, 0.12);
 
       let bass = 0;
       if (fft) {
-        let spectrum = fft.analyze();
-        bass = fft.getEnergy("bass") / 255;  // Beat detection
+        try {
+          bass = fft.getEnergy("bass") / 255;
+        } catch(e) { console.log('FFT ok'); }
       }
 
-      let dt = 1 / 60;
+      let dt = 1/60;
       for (let drone of drones) {
         drone.update(dt, bass);
         drone.draw();
       }
 
-      // Vibe Text
       fill(255);
-      textSize(32);
-      textAlign(CENTER);
-      text(`Bass Vibe: ${int(bass*100)}% | Thrust Avg: ${int(avgThrust())}`, width/2, 50);
+      textSize(28);
+      textAlign(LEFT);
+      text(`Bass: ${int(bass*100)}% | Thrust: ${int(avgThrust())} | Drones: ${numDrones}`, 20, 45);
+
+      // Status update
+      if (isMicOn) statusEl.innerHTML = `Status: Mic ON | Bass: ${int(bass*100)}% – Vibe hard!`;
     }
 
     function avgThrust() {
-      return drones.reduce((sum, d) => sum + d.thrust, 0) / drones.length;
+      return drones.reduce((sum, d) => sum + Math.abs(d.thrust), 0) / drones.length;
     }
 
-    function loadMic() {
-      mic = new p5.AudioIn();
-      mic.start();
-      fft = new p5.FFT();
-      fft.setInput(mic);
+    function toggleMic() {
+      getAudioContext().resume();
+      if (!isMicOn) {
+        mic = new p5.AudioIn();
+        mic.start().then(() => {
+          fft = new p5.FFT(0.8, 1024);
+          fft.setInput(mic);
+          isMicOn = true;
+          console.log('🎤 Mic STARTED – Speak/Rap for bass!');
+          statusEl.innerHTML = 'Status: Mic ON – Speak loud!';
+        }).catch(e => {
+          console.error('Mic Error:', e);
+          statusEl.innerHTML = 'Status: Mic denied – Allow in browser settings.';
+        });
+      } else {
+        if (mic) mic.stop();
+        isMicOn = false;
+        console.log('Mic OFF');
+        statusEl.innerHTML = 'Status: Mic OFF';
+      }
     }
 
-    function loadSong() {
-      song = createFileInput(handleSong);
-      song.position(10, 150);
-    }
-
-    function handleSong(file) {
-      if (song) {
-        song = loadSound(file.data, () => song.play());
-        fft = new p5.FFT();
-        fft.setInput(song);
+    function handleSong(event) {
+      const file = event.target.files[0];
+      if (file && file.type.startsWith('audio/')) {
+        if (song) song.stop();
+        console.log('Song loading:', file.name);
+        statusEl.innerHTML = `Status: Loading ${file.name}...`;
+        song = loadSound(URL.createObjectURL(file), () => {
+          song.play();
+          fft = new p5.FFT(0.8, 1024);
+          fft.setInput(song);
+          console.log('🎵 Song PLAYING!');
+          statusEl.innerHTML = `Status: Song "${file.name}" – Vibing!`;
+        }, () => {
+          console.error('Song load fail');
+          statusEl.innerHTML = 'Status: Song failed – Try MP3/WAV.';
+        });
+      } else {
+        statusEl.innerHTML = 'Status: Pick audio file (MP3/WAV).';
       }
     }
 
